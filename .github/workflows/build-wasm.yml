@@ -1,0 +1,94 @@
+name: Build & Verify Molecular FX Lab (WASM + Web)
+
+on:
+  push:
+    paths:
+      - 'core/**'
+      - 'dsp/**'
+      - 'src/**'
+      - 'public/**'
+      - 'tools/gen_tables.py'
+      - 'scripts/build-wasm.sh'
+      - 'scripts/test-dsp.sh'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/build-wasm.yml'
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    name: Emscripten WASM (46 Atoms) + Parity + Web Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python (for fixed-point table generation)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '3.1.56'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Run upstream Molecular native host tests
+        run: |
+          sh build.sh
+          ./build/host
+
+      - name: Compile all 46 Molecular effects to standalone WebAssembly
+        run: bash scripts/build-wasm.sh
+
+      - name: Verify 0 external imports & bit-exact Native vs WASM parity (46/46 effects)
+        run: bash scripts/test-dsp.sh
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck TypeScript frontend
+        run: npm run lint
+
+      - name: Build production web bundle
+        run: npm run build
+
+      - name: Publish CI verification summary
+        run: |
+          WASM_BYTES=$(wc -c < public/wasm/molecular-fx.wasm)
+          WASM_KIB=$(awk "BEGIN { printf \"%.1f\", ${WASM_BYTES} / 1024 }")
+          {
+            echo "## Molecular FX Lab — WASM & Web Build Summary"
+            echo ""
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| Upstream Molecular host suite (\`./build/host\`) | Passed |"
+            echo "| Standalone WASM binary (\`public/wasm/molecular-fx.wasm\`) | **${WASM_KIB} KiB** (${WASM_BYTES} bytes), 0 external imports |"
+            echo "| Native C99 vs WASM parity (46/46 effects, Q15 + F32 44.1/48 kHz) | **46/46 Passed (0 LSB diff)** |"
+            echo "| Frontend TypeScript (\`npm run lint\`) & Vite bundle (\`npm run build\`) | Passed |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload standalone WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: molecular-fx-wasm
+          path: public/wasm/molecular-fx.wasm
+          if-no-files-found: error
+
+      - name: Upload production web bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: molecular-fx-lab-dist
+          path: dist/
+          if-no-files-found: error

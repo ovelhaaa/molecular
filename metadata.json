@@ -1,0 +1,7 @@
+{
+  "name": "Molecular FX Lab",
+  "description": "Real-time WebAssembly DSP laboratory running the original C fixed-point (Q15) effects from the open-source Molecular firmware (TAPE, REVERSE, GLITCH) via Emscripten and AudioWorklet.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
